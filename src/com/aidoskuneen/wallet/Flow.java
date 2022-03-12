@@ -386,9 +386,7 @@ public class Flow {
 											if (migdata.size()>=2) {
 												String adkMigrated = JScreenWallet.ConvertWeiToADK((String)migdata.get(0));
 												boolean migrationJobStatus = "true".equalsIgnoreCase(((String)migdata.get(1)));
-												ShowInfoMessage("Migration process results:\n\n"+
-												                 "ADK migrated: "+adkMigrated+" ADK\n" +
-												                 (migrationJobStatus?"(no ADK available to be claimed)":"(Some errors occured, please check log)"));
+												ShowInfoMessage("Migration process completed. Check LOG for details.)");
 											}
 										}
 										

@@ -37,7 +37,7 @@ import java.awt.Toolkit;
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.StringSelection;
 
-public class JScreenWallet extends JPanel {
+public class JScreenStaking extends JPanel {
 	private JTable table;
 	//private JTable table;
 
@@ -46,28 +46,33 @@ public class JScreenWallet extends JPanel {
 	 */
 	
 	static Font tableDefaultFont = new Font("Courier New", Font.PLAIN, 15);
-	private JButton btnSend;
-	private JButton migrateBtn;
+	private JButton btnStake;
+	private JButton btnUnstakeAdk;
 	
-	public JScreenWallet(String data[][]) {
+	public JScreenStaking(String data[][]) {
 		setLayout(new BorderLayout(0, 0));
 		
-		String headers[] = { "Id", "Address", "ADK Balance" };
+		String headers[] = { "Id", "Address", " ADK Staked ", " ADK Available ", " Locked until Milestone " , " Current Milestone " };
         
         String data_withTotal[][] = new String[data.length+1][headers.length];
         
         BigInteger btotal = BigInteger.ZERO;
+        BigInteger btotal2 = BigInteger.ZERO;
         for (int row = 0; row < data.length; row++) {
         	for (int col = 0; col < headers.length; col++) {
         		data_withTotal[row+1][col] = data[row][col];
         		if (col==2) {
         			btotal = btotal.add(new BigInteger(data[row][col]));
+        			btotal2 = btotal2.add(new BigInteger(data[row][col+1]));
         		}
             }
         }
         data_withTotal[0][0] = "";
-        data_withTotal[0][1] = "Total ADK (shown)";
+        data_withTotal[0][1] = "Staked ADK (shown)";
         data_withTotal[0][2] = btotal.toString(10);
+        data_withTotal[0][3] = btotal2.toString(10);
+        data_withTotal[0][4] = "";
+        data_withTotal[0][5] = "";
         
         
 		JPanel panel = new JPanel();
@@ -77,117 +82,88 @@ public class JScreenWallet extends JPanel {
 		JPanel panel_left = new JPanel();
 		panel.add(panel_left, BorderLayout.WEST);
 		panel_left.setLayout(new GridLayout(0, 1, 0, 0));
-		
-		JButton btnRefresh = new JButton("Refresh");
-		btnRefresh.addActionListener(new ActionListener() {
-			public void actionPerformed(ActionEvent e) {
-				Flow.DoAction("REFRESH", JScreenWallet.this, null);
-			}
-		});
 //		//btnRefresh.setBorderPainted(false);
 //		//btnRefresh.setFocusPainted(false);
 //		btnRefresh.setContentAreaFilled(t);
 //		btnRefresh.setBackground(JScreenMainFrame.AidosGreen);
 		
-		JLabel lblNewLabel = new JLabel("Wallet actions");
+		JLabel lblNewLabel = new JLabel("<html>Staking<br>actions</html>");
 		lblNewLabel.setFont(new Font("Tahoma", Font.BOLD, 11));
 		lblNewLabel.setHorizontalAlignment(SwingConstants.CENTER);
 		panel_left.add(lblNewLabel);
-		panel_left.add(btnRefresh);
 		
-		btnSend = new JButton("Send ADK");
-		btnSend.addActionListener(new ActionListener() {
+		panel_left.setBorder(BorderFactory.createEmptyBorder(5,5,5,5));
+		
+		btnStake = new JButton("Stake");
+		btnStake.addActionListener(new ActionListener() {
+			public void actionPerformed(ActionEvent e) {
+				if (table.getSelectedRow() > 0) {
+					String address = table.getValueAt(table.getSelectedRow(),1).toString();
+					String available_amount = table.getValueAt(table.getSelectedRow(),3).toString();
+					if (address.startsWith("0x")) {
+						Flow.DoAction("STAKESEND", JScreenStaking.this, new String[] {address, available_amount});
+					}
+				}
+			}
+		});
+		panel_left.add(btnStake);
+		
+		btnUnstakeAdk = new JButton("Unstake");
+		btnUnstakeAdk.addActionListener(new ActionListener() {
 			public void actionPerformed(ActionEvent e) {
 				if (table.getSelectedRow() > 0) {
 					String address = table.getValueAt(table.getSelectedRow(),1).toString();
 					String available_amount = table.getValueAt(table.getSelectedRow(),2).toString();
-					if (address.startsWith("0x")) {
-						Flow.DoAction("SEND", JScreenWallet.this, new String[] {address, available_amount});
+					String available_amount_for_fee = table.getValueAt(table.getSelectedRow(),3).toString();
+					
+					String lockedUntil = table.getValueAt(table.getSelectedRow(),4).toString();
+					String currentBlock = table.getValueAt(table.getSelectedRow(),5).toString();
+					
+					BigInteger b_available_amount_for_fee = new BigInteger(available_amount_for_fee);
+					BigInteger gas = new BigInteger("210000000000000000");  // extra factor 10 for staking
+					
+					if (available_amount.equals("0") || available_amount.equals("0.0") ) {
+						JOptionPane.showMessageDialog(JScreenStaking.this, "No staked balance for this address: Nothing to unstake.");
+						return;
 					}
+
+					long lLockedUntil = Long.parseLong(lockedUntil);
+					long lcurrentBlock = Long.parseLong(currentBlock);
 					
-				}
-			}
-		});
-		btnSend.setEnabled(false);
-		btnSend.setText("<html>Send ADK<br><i>no address<br>selected</i>)</html>");
-		panel_left.add(btnSend);
-		
-		JButton btnAddAddress = new JButton("Add Address");
-		btnAddAddress.addActionListener(new ActionListener() {
-			public void actionPerformed(ActionEvent e) {
-				Flow.DoAction("ADDADDRESS", JScreenWallet.this, null);
-			}
-		});
-		panel_left.add(btnAddAddress);
-		
-		JButton btnGetTXinfo = new JButton("<html><center>Get TX Info<br>(advanced)</center></html>");
-		btnGetTXinfo.addActionListener(new ActionListener() {
-			public void actionPerformed(ActionEvent e) {
-				String tx = Flow.GetTextFromUser("Enter transaction id:", 
-						     "Get technical transaction info (for advanced users)",50).trim();
-				if (tx.matches("^0x[a-fA-F0-9]{64}$")) {
+					if (lcurrentBlock < lLockedUntil) {
+						JOptionPane.showMessageDialog(JScreenStaking.this, "Cannot unstake yet.\n You have to wait for another "+(lLockedUntil-lcurrentBlock)+" milestones.","Error",JOptionPane.ERROR_MESSAGE);
+						return;
+					}
+
+					if (b_available_amount_for_fee.compareTo(gas) < 0 ) {
+						JOptionPane.showMessageDialog(JScreenStaking.this, "You need to have at least 0.21 ADK of unstaked ADK to pay for the unstaking transaction fees.");
+						return;
+					}
+
 					
-					new Thread(new Runnable() {
-                        @Override
-						public void run() {
-							// TODO Auto-generated method stub
-							ProcResult result_rec = Flow.CallCLIWallet("txinfo",tx);
-							JSONObject j_rec = Flow.getJsonFromResult(result_rec);
-							if (j_rec==null || !Flow.isOKJson(j_rec)) {
-								Flow.ShowErrorMessage("Error retrieving TX info. Check log.");
-								Flow.LogLn(j_rec==null?"null":j_rec.toJSONString());
-								
-							} else {
-								JSONArray ja = (JSONArray)j_rec.get("data");
-								Flow.LogLn("#### TX "+tx);
-								for (Object o : ja) {
-									Flow.LogLn(o.toString());
-									Flow.LogLn("===============================");
-								}
-								Flow.ShowInfoMessage("TX data retrieved. Find data in log.");
-							}
-					  }}).start();
-				} else {
-					Flow.ShowErrorMessage("Invalid transaction ID, or request cancelled by user.");
-				}
-			}
-		});
-		
-		migrateBtn = new JButton("<html><center>Migrate<br>\r\nAZ9 ADK<br>\r\n(old Mesh)</center></html>");
-		migrateBtn.addActionListener(new ActionListener() {
-			public void actionPerformed(ActionEvent e) {
-				// migrate old ADK
-				if (table.getSelectedRow() > 0) {
-					String address = table.getValueAt(table.getSelectedRow(),1).toString();
 					if (address.startsWith("0x")) {
-						Flow.DoAction("MIGRATE", JScreenWallet.this, new String[] {address});
+						Flow.DoAction("UNSTAKESEND", JScreenStaking.this, new String[] {address, available_amount});
 					}
 				}
-				//
 			}
 		});
+		panel_left.add(btnUnstakeAdk);
 		
-		migrateBtn.setEnabled(false);
-		panel_left.add(migrateBtn);
-		panel_left.add(btnGetTXinfo);
-		
-		panel_left.setBorder(BorderFactory.createEmptyBorder(5,5,5,5));
-		
-		JButton btnViewStaking = new JButton("<html><center>Staking<br>View</center></html>");
-		btnViewStaking.addActionListener(new ActionListener() {
+		JButton btnRefresh = new JButton("Refresh");
+		btnRefresh.addActionListener(new ActionListener() {
 			public void actionPerformed(ActionEvent e) {
-				Flow.DoAction("VIEWSTAKE", JScreenWallet.this, new String[] {});
+				Flow.DoAction("REFRESHSTAKING", JScreenStaking.this, new String[] {});
 			}
 		});
+		panel_left.add(btnRefresh);
 		
-		
-		JPanel panel_3 = new JPanel();
-		panel_left.add(panel_3);
-		panel_3.setLayout(new BorderLayout(0, 0));
-		panel_3.setBackground(new Color(204, 102, 0));
-		panel_3.setBorder(BorderFactory.createEmptyBorder(2,2,2,2));
-		
-		panel_3.add(btnViewStaking);
+		JButton btnBack = new JButton("<html>Back to<br>Wallet</html>");
+		btnBack.addActionListener(new ActionListener() {
+			public void actionPerformed(ActionEvent e) {
+				Flow.DoAction("REFRESH", JScreenStaking.this, new String[] {});
+			}
+		});
+		panel_left.add(btnBack);
 		
 		JPanel panel_0 = new JPanel();
 		//tabbedPane.addTab("Wallet", null, panel_0, null);
@@ -205,10 +181,10 @@ public class JScreenWallet extends JPanel {
 		        }
 		    };
 		//table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
-		table.setAutoResizeMode(JTable.AUTO_RESIZE_LAST_COLUMN);
-		final TableModel tm = new MyTableModel(data_withTotal, headers);
+		table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
+		final TableModel tm = new MyTableModelV2(data_withTotal, headers);
 		table.setModel(tm);
-		CustomRenderer cr = new CustomRenderer ();
+		CustomRendererV2 cr = new CustomRendererV2 ();
 		table.setDefaultRenderer(Object.class, cr);
 		table.setRowHeight(table.getRowHeight()*2);
 		table.getColumnModel().getColumn(0).setMaxWidth(50);
@@ -256,15 +232,16 @@ public class JScreenWallet extends JPanel {
 		
 		
 		JPanel panel_4 = new JPanel();
-		panel_4.setBackground(new Color(34,118,72));
+		panel_4.setBackground(new Color(99,66,00));
 		panel.add(panel_4, BorderLayout.NORTH);
 		
-		JLabel lbltitle = new JLabel("Wallet");
+		JLabel lbltitle = new JLabel("ADK Staking");
 		lbltitle.setForeground(Color.WHITE);
 		lbltitle.setHorizontalAlignment(SwingConstants.CENTER);
 		lbltitle.setFont(new Font("Arial", Font.BOLD, 16));
 		panel_4.add(lbltitle);
-		}
+		updateButtons();
+	 }
 
 	static boolean NumbersOnly(String check) {
 		if (check==null || check.equals("")) return false;
@@ -296,30 +273,39 @@ public class JScreenWallet extends JPanel {
 		}
 		return adkstr;
 	}
-	
-	public JButton getBtnSend() {
-		return btnSend;
-	}
-
+//	
+//	public JButton getBtnSend() {
+//		return btnSend;
+//	}
+//
 	void updateButtons() {
 		    if (table.getSelectedRow()>0) {
-            	btnSend.setEnabled(true);
-            	btnSend.setText("Send ADK");
-            	migrateBtn.setEnabled(true);
+            	this.getBtnStake().setEnabled(true);
+            	this.getBtnStake().setText("Stake ADK");
+            	this.getBtnUnstakeAdk().setEnabled(true);
+            	this.getBtnUnstakeAdk().setText("Unstake ADK");
             } else {
-            	btnSend.setEnabled(false);
-            	btnSend.setText("<html>Send ADK<br><i>no address<br>selected</i>)</html>");
-            	migrateBtn.setEnabled(false);
+            	this.getBtnStake().setEnabled(false);
+            	this.getBtnStake().setText("<html>Stake ADK<br><i>no address<br>selected</i>)</html>");
+            	this.getBtnUnstakeAdk().setEnabled(false);
+            	this.getBtnUnstakeAdk().setText("<html>Unstake ADK<br><i>no address<br>selected</i>)</html>");
+            	
             }
     }
-	public JButton getMigrateBtn() {
-		return migrateBtn;
+//	public JButton getMigrateBtn() {
+//		return migrateBtn;
+//	}
+	public JButton getBtnStake() {
+		return btnStake;
+	}
+	public JButton getBtnUnstakeAdk() {
+		return btnUnstakeAdk;
 	}
 }
 
-class MyTableModel extends DefaultTableModel {
+class MyTableModelV2 extends DefaultTableModel {
 
-	   public MyTableModel(Object[][] tableData, Object[] colNames) {
+	   public MyTableModelV2(Object[][] tableData, Object[] colNames) {
 	      super(tableData, colNames);
 	   }
 
@@ -329,7 +315,7 @@ class MyTableModel extends DefaultTableModel {
 }
 
 
-class CustomRenderer extends DefaultTableCellRenderer 
+class CustomRendererV2 extends DefaultTableCellRenderer 
 {
 
 	
@@ -339,7 +325,16 @@ class CustomRenderer extends DefaultTableCellRenderer
 		String newValue = (String)value;
         if (column == 2) {
         	// show value as ADK
-        	newValue = JScreenWallet.ConvertWeiToADK((String)newValue);
+        	newValue = JScreenStaking.ConvertWeiToADK((String)newValue);
+        	int indexofDot = newValue.toString().indexOf('.');
+        	while (indexofDot != -1 && indexofDot < 8 ) {
+        		newValue = " "+newValue.toString();
+        		indexofDot = newValue.toString().indexOf('.');
+        	}
+        }
+        if (column == 3) {
+        	// show value as ADK
+        	newValue = JScreenStaking.ConvertWeiToADK((String)newValue);
         	int indexofDot = newValue.toString().indexOf('.');
         	while (indexofDot != -1 && indexofDot < 8 ) {
         		newValue = " "+newValue.toString();
@@ -348,13 +343,13 @@ class CustomRenderer extends DefaultTableCellRenderer
         }
         newValue = " "+newValue+" ";
         Component c = super.getTableCellRendererComponent(table, newValue, isSelected, hasFocus, row, column);
-        if (c instanceof CustomRenderer) {
-        	CustomRenderer cr = (CustomRenderer) c;
+        if (c instanceof CustomRendererV2) {
+        	CustomRendererV2 cr = (CustomRendererV2) c;
         	
         	// default 
         	cr.setForeground(Color.BLACK);
         	cr.setBackground(Color.WHITE);
-        	cr.setFont(JScreenWallet.tableDefaultFont);
+        	cr.setFont(JScreenStaking.tableDefaultFont);
         	
         	if (column == 2 && ((String)value).equals("0")) {
         		cr.setForeground(Color.GRAY);

@@ -9,23 +9,31 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.RandomAccessFile;
 import java.io.UnsupportedEncodingException;
+import java.math.BigInteger;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.URLDecoder;
 import java.nio.channels.FileLock;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.nio.file.attribute.PosixFilePermission;
 import java.security.CodeSource;
 import java.security.ProtectionDomain;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Set;
 
 import javax.swing.BorderFactory;
+import javax.swing.JFileChooser;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JPasswordField;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
+import javax.swing.filechooser.FileSystemView;
 
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
@@ -42,6 +50,57 @@ public class Flow {
 	public static File CLI = pathToCLI();
 	public static String OS = System.getProperty("os.name","windows").toLowerCase();
 	
+	
+	public static void makeExecutable(File f) { // try a few things
+		if (f!=null && f.exists()) {
+			try {
+				f.setExecutable(true);
+			} catch (Exception e) {
+				
+			}
+			try {
+				f.setExecutable(true, false);
+			} catch (Exception e) {
+				
+			}
+			try {
+				if (!OS.contains("windows")) {
+					Runtime.getRuntime().exec("chmod 755 "+f.getAbsolutePath());
+				}
+			}catch (Exception e) {
+				
+			}
+			try {
+				if (!OS.contains("windows")) {
+					Runtime.getRuntime().exec("chmod 755 \""+f.getAbsolutePath()+"\"");
+				}
+			}catch (Exception  e) {
+				
+			}
+			try {
+				if (!OS.contains("windows")) {
+					Set<PosixFilePermission> perms = new HashSet<PosixFilePermission>();
+					//add owners permission
+					perms.add(PosixFilePermission.OWNER_READ);
+					perms.add(PosixFilePermission.OWNER_WRITE);
+					perms.add(PosixFilePermission.OWNER_EXECUTE);
+					//add group permissions
+					perms.add(PosixFilePermission.GROUP_READ);
+					perms.add(PosixFilePermission.GROUP_WRITE);
+					perms.add(PosixFilePermission.GROUP_EXECUTE);
+					//add others permissions
+					perms.add(PosixFilePermission.OTHERS_READ);
+					perms.add(PosixFilePermission.OTHERS_WRITE);
+					perms.add(PosixFilePermission.OTHERS_EXECUTE);
+
+					Files.setPosixFilePermissions(f.toPath(), perms);
+				}
+			}catch (Exception  e) {
+				
+			}
+		}
+	}
+	
 	public static File pathToCLI() {
 		// make sure we have the current working directory (to be used for CLI, json and property files).
 		// note this can change depending on how this app is run (from java, javaw, executable jar, launch4j, etc..
@@ -52,6 +111,8 @@ public class Flow {
 		System.out.println("Trying to locate CLI executable in: " + (cli==null?"NULL":cli.getAbsolutePath()));
 		   
 		if (cli.exists()) { // current working dir?
+			   makeExecutable(cli);
+			   JConfig.CheckConfigFile();
 			   return cli;
 		}
 		cli = null;
@@ -63,10 +124,18 @@ public class Flow {
 				CodeSource cs = pd.getCodeSource();
 				if (cs!= null) {
 				   String locpath = cs.getLocation().getPath();
-				   String decodedPath = URLDecoder.decode(locpath, "UTF-8");
-				   cli = new File(decodedPath,executable.replace("./", ""));
+				   String decodedPath = "";
+				   try {
+					   decodedPath = URLDecoder.decode(locpath, "UTF-8");
+					   cli = new File(decodedPath,executable.replace("./", ""));
+				   } catch (Exception e) {
+						// unsupported encoding?
+					   decodedPath = URLDecoder.decode(locpath);
+					}
 				   System.out.println("Trying to locate CLI executable in: " + (cli==null?"NULL":cli.getAbsolutePath()));
 				   if (cli != null && cli.exists()) {
+					   makeExecutable(cli);
+					   JConfig.CheckConfigFile();
 					   return cli;
 				   }
 				   // else look up one dir higher (e.g. if we are within a "jar" file)
@@ -75,37 +144,69 @@ public class Flow {
 				   cli = new File(parent.getPath(),executable.replace("./", ""));
 				   System.out.println("Trying to locate CLI executable in: " + (cli==null?"NULL":cli.getAbsolutePath()));
 				   if (cli != null && cli.exists()) {
+					   makeExecutable(cli);
+					   JConfig.CheckConfigFile();
 					   return cli;
 				   }
 				}
 			}
-		} catch (UnsupportedEncodingException | SecurityException | URISyntaxException | NullPointerException e) {
+		} catch (SecurityException | URISyntaxException | NullPointerException e) {
 			e.printStackTrace();
+			
 		}
 		return null;
+	}
+	
+	public static File AskForFile() {
+		// still not found, ask
+		JFileChooser jfc = new JFileChooser(FileSystemView.getFileSystemView().getHomeDirectory());
+
+		jfc.setDialogTitle("Please select the adkwallet_cli executable file");
+		
+		int returnValue = jfc.showOpenDialog(null);
+		// int returnValue = jfc.showSaveDialog(null);
+
+		if (returnValue == JFileChooser.APPROVE_OPTION) {
+			if ( jfc.getSelectedFile() != null && jfc.getSelectedFile().getName().toLowerCase().endsWith("adkwallet_cli")) {
+				return jfc.getSelectedFile();
+			}
+			if ( jfc.getSelectedFile() != null && jfc.getSelectedFile().getName().toLowerCase().endsWith("adkwallet_cli.exe")) {
+				return jfc.getSelectedFile();
+			}
+			JOptionPane.showMessageDialog(null, "Selected file is not an adkwallet_cli executable");
+			return AskForFile();
+		}
+		return null;
+
 	}
 	
 	public static void main(String[] args) {
 		//JOptionPane.showMessageDialog(null,"CLI file: "+ (CLI==null?"NULL":CLI.getAbsoluteFile()));
 		if (CLI == null) {
 			if (OS.contains("windows")) {
-					JOptionPane.showMessageDialog(null, "Missing adkwallet_cli.exe command line executable.\n"+
-			                                           "Please ensure it is in the same path as the GUI Application.","Error",JOptionPane.ERROR_MESSAGE);
+					JOptionPane.showMessageDialog(null, "Could not locate adkwallet_cli.exe command line executable.\n"+
+			                                           "Please select the file adkwallet_cli.exe in the following open-file dialog.","Error",JOptionPane.ERROR_MESSAGE);
 					
-					return;
+				CLI = AskForFile();
+				if (CLI!= null) makeExecutable(CLI); 
 			} else {
-				JOptionPane.showMessageDialog(null, "Missing ./adkwallet_cli command line executable.\n"+
-		                                           "Please ensure it is in the same path as the GUI Application.","Error",JOptionPane.ERROR_MESSAGE);
-				return;
+				JOptionPane.showMessageDialog(null, "Could not locate adkwallet_cli command line executable.\n"+
+                        "Please select the file adkwallet_cli file in the following open-file dialog.","Error",JOptionPane.ERROR_MESSAGE);
+				CLI = AskForFile();
+				if (CLI!= null) makeExecutable(CLI);
 			}
 		}
 		
+		if (CLI == null) {
+			JOptionPane.showMessageDialog(null, "Please ensure you have the adkwallet_cli executable in the same directory as your GUI jar.","Error",JOptionPane.ERROR_MESSAGE);
+		}
 		
 		if (!lockInstance("pid.lock")) {
 			JOptionPane.showMessageDialog(null, "Another instance already running. Close other instances first.");
 			return;
 		}
 		
+		JConfig.CheckConfigFile();
 		JConfig.LoadConfig();
 		
 		EventQueue.invokeLater(new Runnable() {
@@ -191,6 +292,22 @@ public class Flow {
 		}
 	}
 	
+	public void OpenStaking() { // 
+		int cntAccounts = Wallet.MainWallet().accounts.size();
+		String[][] data = new String[cntAccounts][6];
+		RequestRefreshStaking();
+		int row = 0;
+		for (WalletAccount a : Wallet.MainWallet().accounts) {
+			data[row][0] = a.id+"";
+			data[row][1] = a.pubKey;
+			data[row][2] = a.LastBalanceStaked.toString();
+			data[row][3] = a.LastBalance.toString();
+			data[row][4] = a.LastStakedBlock.add(a.LockedForBlocks).toString();
+			data[row][5] = a.LastBlock.toString();
+			row++;
+		}
+		setScreen(new JScreenStaking(data)); //
+	}
 	
 	
 	static boolean readyForNextAction  = false;
@@ -313,8 +430,28 @@ public class Flow {
 						OpenLocal();
 						NextUserAction();
 						break;
+					case "REFRESHSTAKING":
+						OpenStaking();
+						NextUserAction();
+					break;
 					case "REFRESH":
 						OpenLocal();
+						NextUserAction();
+					break;
+					case "VIEWSTAKE":
+						OpenStaking();
+						NextUserAction();
+					break;
+					case "UNSTAKESEND": 
+						String fromust = userAction.params[0];
+						String availableust = userAction.params[1];
+						setScreen(new JScreenDoUNStake(fromust, availableust)); 
+						NextUserAction();
+					break;
+					case "STAKESEND": // send butten requested, get user input
+						String fromst = userAction.params[0];
+						String availablest = userAction.params[1];
+						setScreen(new JScreenDoStake(fromst, availablest)); 
 						NextUserAction();
 					break;
 					case "SEND": // send butten requested, get user input
@@ -348,6 +485,56 @@ public class Flow {
 						NextUserAction();
 					break;
 					
+					case "DOSTAKE": //execute sending
+						String send_method_stk = userAction.params[0]; //pow or gas
+						String send_from_stk = userAction.params[1];
+						String send_amount_stk = userAction.params[2];
+						ProcResult send_result_rec_stk = CallCLIWallet("stake",send_method_stk,"(**)"+cachedPassword, send_from_stk, send_amount_stk);
+						JSONObject send_j_rec_stk = getJsonFromResult(send_result_rec_stk);
+						if (send_j_rec_stk==null || !isOKJson(send_j_rec_stk)|| !(send_j_rec_stk.get("data") instanceof JSONArray)) {
+							ShowErrorMessage("Error staking. Check log.");
+							LogLn(send_j_rec_stk==null?"null":send_j_rec_stk.toJSONString());
+						} else {
+							JSONArray dt = ((JSONArray)(send_j_rec_stk.get("data")));
+							String tx = "[null]";
+							if (dt.size() > 0)
+								tx = (String)dt.get(0).toString();
+							LogLn("*************************************\n");
+							LogLn("Transaction Id: "+tx);
+							LogLn("*************************************\n");
+							ShowInfoMessage("Transaction sent. (Transaction ID can be found in log)");
+						}
+						
+						OpenStaking();
+						NextUserAction();
+					break;
+					case "DOUNSTAKE": //execute sending
+						String send_method_unstk = userAction.params[0]; //pow or gas, for unstake always gas
+						String send_from_unstk = userAction.params[1];
+						String send_amount_unstk = userAction.params[2];
+						ProcResult send_result_rec_unstk = CallCLIWallet("unstake",send_method_unstk,"(**)"+cachedPassword, send_from_unstk, send_amount_unstk);
+						JSONObject send_j_rec_unstk = getJsonFromResult(send_result_rec_unstk);
+						if (send_j_rec_unstk==null || !isOKJson(send_j_rec_unstk)|| !(send_j_rec_unstk.get("data") instanceof JSONArray)) {
+							ShowErrorMessage("Error unstaking. Check log.");
+							LogLn(send_j_rec_unstk==null?"null":send_j_rec_unstk.toJSONString());
+						} else {
+							JSONArray dt = ((JSONArray)(send_j_rec_unstk.get("data")));
+							String tx = "[null]";
+							if (dt.size() > 0)
+								tx = (String)dt.get(0).toString();
+							LogLn("*************************************\n");
+							LogLn("Transaction Id: "+tx);
+							LogLn("*************************************\n");
+							ShowInfoMessage("Transaction sent. (Transaction ID can be found in log)");
+						}
+						
+						OpenStaking();
+						NextUserAction();
+					break;
+					case "CANCELSTAKE"://cancel sending
+						OpenStaking();
+						NextUserAction();
+					break;
 					case "CANCELSEND"://cancel sending
 						OpenLocal();
 						NextUserAction();
@@ -433,6 +620,42 @@ public class Flow {
 		} else {
 			LogLn(jrfr.toJSONString());
 		}
+	}
+	
+	void RequestRefreshStaking() {
+		RequestRefresh();
+		try {
+			String addrList = "";
+			for (WalletAccount addr : Wallet.MainWallet().accounts) {
+				if (addrList.equals(""))
+					addrList = addr.pubKey;
+				else
+					addrList += ","+addr.pubKey;
+			}
+			ProcResult result_rfr = CallCLIWallet("stakedbalance",addrList);
+			JSONObject jrfr = getJsonFromResult(result_rfr);
+			if (jrfr==null || !isOKJson(jrfr) ) {
+				//System.out.println(jrfr.toJSONString());
+				ShowErrorMessage("Error in CLI command during staking refresh. Check log.");
+				LogLn(jrfr==null?"null":jrfr.toJSONString());
+			} else {
+				LogLn(jrfr.toJSONString());
+				JSONObject data = (JSONObject) jrfr.get("data");
+				for (WalletAccount addr : Wallet.MainWallet().accounts) {
+					String[] stakeinfo = ((String)data.getOrDefault(addr.pubKey,"0;0;0")).split(";");
+					addr.LastBalanceStaked = new BigInteger(stakeinfo[0]);
+					addr.LastStakedBlock = new BigInteger(stakeinfo[1]);
+					addr.LastBlock = new BigInteger(stakeinfo[2]);
+					addr.LockedPeriod = new BigInteger(stakeinfo[3]);
+					addr.LockedForBlocks = addr.LockedPeriod.subtract(addr.LastBlock.subtract(addr.LastStakedBlock));
+					if (addr.LockedForBlocks.compareTo(BigInteger.ZERO)<=0)
+						addr.LockedForBlocks = BigInteger.ZERO;
+				}
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+		
 	}
 	
 	String GetNewPassword() {
@@ -622,7 +845,11 @@ public class Flow {
 			setScreen(new JScreenChooseMetamaskAccount(pk_mm, useLocal, password));
 		}
 		else {
-			ShowErrorMessage("No Metamask accounts found for this password.\nPassword incorrect or Metamask not installed.");
+			ShowErrorMessage("No Metamask accounts found for this password.\nPassword incorrect or Metamask not installed.\n\n"+
+					 "Note: Some Metamask installations with an incompatible legacy vault cannot be connected directly.\n"+
+					"If you are sure your password is correct, and your Metamask installation is present, please import\n"+
+					 "your Metamask into ADK wallet via the 'Open LOCAL Wallet' option, then select \"Recover Wallet\", and\n"+
+					" enter your Metamask Seed Phrase (from Metamask settings), to load your Metamask accounts into ADK Wallet.");
 		}
 	}
 	
@@ -630,7 +857,7 @@ public class Flow {
 	
 	///// CALLING THE CLI PROGRAM
 	
-	static String APIVersion = "1";
+	static String APIVersion = "2";
 	
 	static synchronized ProcResult CallCLIWallet(String... commandline) {
 		String c = commandline.length==0?"":commandline[0];
@@ -654,7 +881,7 @@ public class Flow {
 	     
 	    for (String arg : commandline) { // second lot of params
 	    	boolean hide = false;
-	    	if (arg.startsWith("(**)")){
+	    	while (arg!=null && arg.startsWith("(**)")){
 	    		arg = arg.substring(4);
 	    		hide = true;
 	    	}

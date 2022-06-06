@@ -857,7 +857,7 @@ public class Flow {
 	
 	///// CALLING THE CLI PROGRAM
 	
-	static String APIVersion = "2";
+	static String APIVersion = "3";
 	
 	static synchronized ProcResult CallCLIWallet(String... commandline) {
 		String c = commandline.length==0?"":commandline[0];
